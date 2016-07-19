@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-import os, ConfigParser, logging
-import loghelper
+import os, ConfigParser
 import platform
 
 BASE_APP_PATH = '/usr/local/bin/ivigilate/' if platform.system == 'Linux' else ''
@@ -11,8 +10,6 @@ HCITOOL_FILE_PATH = '/usr/bin/hcitool'
 
 __cfg = None
 __cpuinfo = None
-__logger = logging.getLogger(__name__)
-loghelper.init_logger(__logger)
 
 
 def get_cpuinfo():
@@ -35,15 +32,13 @@ def get_cpuinfo():
     return (hardware, revision, cpuserial)
 
 def get_detector_uid():
+    # not using the 'hardware' info as it references the CPU family which doesn't really mean much...
     return 'FFFFFFFFFFFF' + get('DEVICE', 'revision') + get('DEVICE', 'serial')
 
 
 def init():
     global __cpuinfo
     __cpuinfo = get_cpuinfo()
-
-    if __cpuinfo[0] == '' and __cpuinfo[1] == '' and __cpuinfo[2] == '0000000000000000':
-        BASE_APP_PATH = ''
 
     global __cfg
     __cfg = ConfigParser.SafeConfigParser()

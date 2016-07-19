@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 from datetime import datetime, timedelta
-import platform, sys, subprocess, ConfigParser, logging
+import platform, sys, subprocess, logging
 import time, requests, json, Queue, threading
 import config, autoupdate, blescan, localevents, loghelper
 import buzzer
-from logging.handlers import RotatingFileHandler
 
 __logger = logging.getLogger(__name__)
 loghelper.init_logger(__logger)
@@ -112,16 +111,15 @@ def main():
 
     ble_queue = Queue.Queue()
 
-    if platform.system == 'Linux':
-        # need to try catch and retry this as it some times fails...
-        subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
+    # need to try catch and retry this as it some times fails...
+    subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
 
-        init_ble_advertiser()
+    init_ble_advertiser()
 
-        ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
-        ble_thread.daemon = True
-        ble_thread.start()
-        __logger.info('BLE scanner thread started')
+    ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
+    ble_thread.daemon = True
+    ble_thread.start()
+    __logger.info('BLE scanner thread started')
 
     last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
 
