@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 from datetime import datetime, timedelta
-import os, sys, subprocess, ConfigParser, logging
+import platform, sys, subprocess, ConfigParser, logging
 import time, requests, json, Queue, threading
-import config, autoupdate, blescan, localevents
-import bluetooth._bluetooth as bluez
+import config, autoupdate, blescan, localevents, loghelper
 import buzzer
 from logging.handlers import RotatingFileHandler
 
 __logger = logging.getLogger(__name__)
+loghelper.init_logger(__logger)
 
 __dev_id = 0
 
@@ -17,17 +17,6 @@ __ignore_sightings = {}
 __invalid_detector_check_timestamp = 0
 
 IGNORE_INTERVAL = 1 * 60 * 60 * 1000
-
-
-def init_logger(log_level):
-    log_formatter = logging.Formatter('%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s')
-
-    file_handler = RotatingFileHandler(config.LOG_FILE_PATH, mode='a', maxBytes=2*1024*1024,
-                                     backupCount=10, encoding=None, delay=0)
-    file_handler.setFormatter(log_formatter)
-    file_handler.setLevel(log_level)
-
-    __logger.addHandler(file_handler)
 
 
 def send_sightings_async(sightings):
@@ -91,7 +80,7 @@ def init_ble_advertiser():
 
 def ble_scanner(queue):
     try:
-        sock = bluez.hci_open_dev(__dev_id)
+        sock = blescan.hci_open_dev(__dev_id)
         __logger.info('BLE device started')
     except Exception:
         __logger.exception('BLE device failed to start:')
@@ -99,7 +88,6 @@ def ble_scanner(queue):
         __logger.critical('Will reboot RPi to see if it fixes the issue')
         # try to stop and start the BLE device somehow...
         # if that doesn't work, reboot the device.
-        __logger.critical('Will reboot RPi to see if it fixes the issue')
         sys.exit(1)
 
     blescan.hci_le_set_scan_parameters(sock)
@@ -116,35 +104,32 @@ def main():
     authorized.add('b0b448fba565')
     authorized.add('123456781234123412341234567890ab')
     unauthorized = set(['b0b448c87401'])
-    
-    config.init()
+
     buzzer.init()
-
-    log_level = config.getint('BASE', 'log_level')
-    init_logger(log_level)
-
-    __logger.info('Started with log level: ' + logging.getLevelName(log_level))
 
     #autoupdate.check()
     last_update_check = datetime.now()
 
-    # need to try catch and retry this as it some times fails...
-    subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
-
-    init_ble_advertiser()
-
     ble_queue = Queue.Queue()
 
-    ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
-    ble_thread.daemon = True
-    ble_thread.start()
-    __logger.info('BLE scanner thread started')
+    if platform.system == 'Linux':
+        # need to try catch and retry this as it some times fails...
+        subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
+
+        init_ble_advertiser()
+
+        ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
+        ble_thread.daemon = True
+        ble_thread.start()
+        __logger.info('BLE scanner thread started')
 
     last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
-    
+
+    localevents.fetch()
     print "Going into the main loop..."
     print "Authorized: ", authorized
-    print "Unauthorized: ", unauthorized 
+    print "Unauthorized: ", unauthorized
+
 
     try:
         while True:

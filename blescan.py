@@ -7,9 +7,9 @@
 
 # NOTE: Python's struct.pack() will add padding bytes unless you make the endianness explicit. Little endian
 # should be used for BLE. Always start a struct.pack() format string with "<"
-import sys, struct, logging, Queue
+import sys, struct, logging, Queue, time
+import loghelper
 import bluetooth._bluetooth as bluez
-import time
 
 LE_META_EVENT = 0x3e
 LE_PUBLIC_ADDRESS = 0x00
@@ -36,7 +36,9 @@ ADV_SCAN_IND = 0x02
 ADV_NONCONN_IND = 0x03
 ADV_SCAN_RSP = 0x04
 
-logger = logging.getLogger(__name__)
+__logger = logging.getLogger(__name__)
+loghelper.init_logger(__logger)
+
 is_running = True
 server_time_offset = 0
 adv_scan_rsp = {}
@@ -76,6 +78,10 @@ def packed_bdaddr_to_string(bdaddr_packed):
     return ':'.join('%02x' % i for i in struct.unpack('BBBBBB', bdaddr_packed[::-1]))
 
 
+def hci_open_dev(dev_id):
+    sock = bluez.hci_open_dev(dev_id)
+    return sock
+
 def hci_enable_le_scan(sock):
     hci_toggle_le_scan(sock, 0x01)
 
@@ -87,7 +93,7 @@ def hci_disable_le_scan(sock):
 def hci_toggle_le_scan(sock, enable):
     cmd_pkt = struct.pack('<BB', enable, 0x00)
     bluez.hci_send_cmd(sock, OGF_LE_CTL, OCF_LE_SET_SCAN_ENABLE, cmd_pkt)
-    logger.info('Toggled le scan: %s', enable)
+    __logger.info('Toggled le scan: %s', enable)
 
 
 def hci_le_set_scan_parameters(sock):
@@ -101,11 +107,11 @@ def hci_le_set_scan_parameters(sock):
     # interval and window are uint_16, so we pad them with 0x0
     cmd_pkt = struct.pack('<BBBBBBB', SCAN_TYPE, 0x0, INTERVAL, 0x0, WINDOW, OWN_TYPE, FILTER)
     bluez.hci_send_cmd(sock, OGF_LE_CTL, OCF_LE_SET_SCAN_PARAMETERS, cmd_pkt)
-    logger.info('Sent scan parameters command.')
+    __logger.info('Sent scan parameters command.')
 
 
 def parse_events(sock, queue, loop_count=100):
-    logger.info('Started parsing BLE events...')
+    __logger.info('Started parsing BLE events...')
     old_filter = sock.getsockopt(bluez.SOL_HCI, bluez.HCI_FILTER, 14)
 
     # perform a device inquiry on bluetooth device #0
@@ -203,8 +209,8 @@ def parse_events(sock, queue, loop_count=100):
                         if uuid != previous_item.get('beacon_uid', None) or \
                                 (uuid == previous_item.get('beacon_uid', None) and
                                          (now - previous_item.get('timestamp')) >= 1000):
-                            logger.debug('Raw: %s', return_string_from_packet(pkt))
-                            logger.info('Parsed: %s,%s,%s,%s,%i,%i' % (mac, manufacturer, uuid, data, battery, rssi))
+                            __logger.debug('Raw: %s', return_string_from_packet(pkt))
+                            __logger.info('Parsed: %s,%s,%s,%s,%i,%i' % (mac, manufacturer, uuid, data, battery, rssi))
                             print 'Parsed: %s,%s,%s,%s,%i,%i' % (mac, manufacturer, uuid, data, battery, rssi)
 
                             sighting = {}  # dict()
@@ -218,10 +224,10 @@ def parse_events(sock, queue, loop_count=100):
                             # logger.info('Skipping packet as a similar one happened less than 1 second ago.')
 
                     except Exception as ex:
-                        logger.exception('Failed to parse beacon advertisement package:')
+                        __logger.exception('Failed to parse beacon advertisement package:')
 
                     report_offset = report_offset +  10 + report_data_length + 1
 
 
     sock.setsockopt(bluez.SOL_HCI, bluez.HCI_FILTER, old_filter)
-    logger.info('Finished parsing events.')
+    __logger.info('Finished parsing events.')
