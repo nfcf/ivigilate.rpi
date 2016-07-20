@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys, subprocess, logging
 import time, requests, json, Queue, threading
 import config, autoupdate, blescan, localeventshelper, loghelper

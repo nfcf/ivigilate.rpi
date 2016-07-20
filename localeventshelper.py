@@ -1,6 +1,6 @@
 import logging, requests, json, math
 import config, loghelper #, blescan
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 __logger = logging.getLogger(__name__)
 loghelper.init_logger(__logger)
@@ -35,7 +35,7 @@ def fetch():
 def get_active_events():
     active_local_events = []
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now()
     current_week_day_representation = math.pow(2, now.weekday())
 
     if local_events is not None and len(local_events) > 0:
