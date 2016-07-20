@@ -15,12 +15,12 @@ def init_logger(logger):
                                        encoding=None,
                                        delay=50)
     file_handler.setFormatter(log_formatter)
-    file_handler.setLevel(log_level)
+    file_handler.setLevel(log_level)  # This is the one handler making use of the config log_level
 
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.DEBUG)
 
-    logger.setLevel(log_level)
+    logger.setLevel(logging.DEBUG)
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 

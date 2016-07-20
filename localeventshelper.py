@@ -15,7 +15,7 @@ def fetch():
         __logger.info('Checking if there are local_events configured on the server for this detector...')
         response = requests.get(config.get('SERVER', 'address') + config.get('SERVER', 'localevents_uri') +
                                 '?detector_uid=' + config.get_detector_uid(),
-                                 verify=True)
+                                verify=True)
         __logger.info('Received from localevents response status: %s', response.status_code)
 
         result = json.loads(response.text)
