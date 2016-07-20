@@ -16,7 +16,7 @@ def init_logger(logger):
     file_handler.setLevel(log_level)  # This is the one handler making use of the config log_level
 
     console_handler = logging.StreamHandler()
-    console_handler.setFormatter(logging.Formatter('%(levelname)s %(asctime)s %(message)s'))
+    console_handler.setFormatter(logging.Formatter('%(levelname)s %(message)s'))
     console_handler.setLevel(logging.DEBUG)
 
     logger.setLevel(logging.DEBUG)

@@ -10,8 +10,8 @@ loghelper.init_logger(__logger)
 
 __dev_id = 0
 
-__ignore_sightings_lock = threading.Lock()
-__ignore_sightings = {}
+__invalid_beacons_lock = threading.Lock()
+__invalid_beacons = {}
 
 __invalid_detector_check_timestamp = 0
 
@@ -45,13 +45,15 @@ def send_sightings(sightings):
             __invalid_detector_check_timestamp = now + blescan.server_time_offset
             __logger.warning('Detector is marked as invalid. Ignoring ALL sightings for %i ms', IGNORE_INTERVAL)
         elif response.status_code == 206:
-            if result.get('data', None) is not None and len(result.get('data')) > 0:
-                __ignore_sightings_lock.acquire()
+            data = result.get('data', None)
+            if data is not None and len(data) > 0 and \
+                            data.get('invalid_beacons', None) is not None and len(data.get('invalid_beacons')) > 0:
+                __invalid_beacons_lock.acquire()
 
-                for ignore_sighting_key in result.get('data'):
-                    __ignore_sightings[ignore_sighting_key] = now + blescan.server_time_offset
+                for ignore_sighting_key in data.get('invalid_beacons'):
+                    __invalid_beacons[ignore_sighting_key] = now + blescan.server_time_offset
 
-                __ignore_sightings_lock.release()
+                __invalid_beacons_lock.release()
 
     except Exception:
         __logger.exception('Failed to contact the server with error:')
@@ -146,33 +148,35 @@ def main():
 
                     ignore_sighting = now_timestamp - __invalid_detector_check_timestamp < IGNORE_INTERVAL
                     if not ignore_sighting:
-                        __ignore_sightings_lock.acquire()
+                        __invalid_beacons_lock.acquire()
 
-                        ignore_sighting_timestamp = __ignore_sightings.get(sighting_key, 0)
-                        if ignore_sighting_timestamp > 0 and \
-                            now_timestamp - ignore_sighting_timestamp < IGNORE_INTERVAL:
+                        invalid_beacon_timestamp = __invalid_beacons.get(sighting_key, 0)
+                        if invalid_beacon_timestamp > 0 and \
+                            now_timestamp - invalid_beacon_timestamp < IGNORE_INTERVAL:
                             ignore_sighting = True
-                        elif sighting_key in __ignore_sightings:
-                            del __ignore_sightings[sighting_key]
+                        elif sighting_key in __invalid_beacons:
+                            del __invalid_beacons[sighting_key]
 
-                        __ignore_sightings_lock.release()
+                        __invalid_beacons_lock.release()
 
                     if not ignore_sighting:
                         sightings.append(sighting)
-                        # TODO Only add this beacon to the list if we have "events" for it
-                        ## Probably join all unauthorized lists into one and see if this new exists there or not
+                        # Probably join all unauthorized lists into one and see if this new exists there or not
                         if sighting['beacon_mac'] != '':
                             locally_seen_macs.add(sighting['beacon_mac']) # Append the beacon_mac of the latest sighting
                         if sighting['beacon_uid'] != '':
                             locally_seen_uids.add(sighting['beacon_uid']) # Append the beacon_uid of the latest sighting
                         # Launch threading.timer here
                     else:
-                        print 'sighting ignored: ' + sighting_key
+                        __logger.info('Sighting ignored (invalid beacon): %s', sighting_key)
                     
             local_events = localeventshelper.get_active_events()
             for local_event in local_events:
                 unauthorized = set(local_event.get('unauthorized_beacons', []))
                 authorized = set(local_event.get('authorized_beacons', []))
+                __logger.debug("Authorized: %s", authorized)
+                __logger.debug("Unauthorized: %s", unauthorized)
+
                 if not locally_seen_macs.isdisjoint(unauthorized) or \
                     not locally_seen_uids.isdisjoint(unauthorized):
                     # Rogue beacon is trying to escape!!
@@ -186,7 +190,7 @@ def main():
                         buzzer.play_alert(local_event.get('action_duration_in_seconds', 5))
                         break
                     else:
-                        print 'saved by the bell...'
+                        print 'saved by an authorized beacon...'
 
             print "All your base are belong to us."
             locally_seen_macs.clear()

@@ -43,20 +43,16 @@ def get_active_events():
         for local_event in local_events:
             schedule_now_with_timezone = now + timedelta(minutes = local_event.get('schedule_timezone_offset', 0))
             schedule_start_time = local_event.get('schedule_start_time', '00:00:00')
-            schedule_end_time = local_event.get('schedule_start_time', '23:59:59')
+            schedule_end_time = local_event.get('schedule_end_time', '23:59:59')
 
-            __logger.info('BEFORE SCHEDULE CHECK')
             if int(local_event.get('schedule_days_of_week', 127)) & int(current_week_day_representation) > 0 and \
                 schedule_start_time <= schedule_now_with_timezone.strftime('%H:%M:%S') <= schedule_end_time:
-                __logger.info('AFTER SCHEDULE CHECK')
+
                 metadata = json.loads(local_event.get('metadata', '{}'))
-                actions = json.loads(metadata.get('actions', '[{}]'))
+                actions = metadata.get('actions', json.loads('[{}]'))
                 # local events only have one action and in this case we only care about the duration_in_seconds
                 local_event['action_duration_in_seconds'] = actions[0].get('duration_in_seconds')
 
                 active_local_events.append(local_event)
-
-                __logger.warning("Authorized: %s", set(local_event('authorized_beacons', [])))
-                __logger.warning("Unauthorized: %s", set(local_event('unauthorized_beacons', [])))
 
     return active_local_events
