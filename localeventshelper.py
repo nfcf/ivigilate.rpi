@@ -27,6 +27,7 @@ def fetch():
             local_events = result.get('data', [])
             # Remove inactive local_events (that shouldn't be here anyway...)
             local_events = [le for le in local_events if le.get('is_active', True) == True]
+            __logger.info('Received %s active localevents', len(local_events))
 
     except Exception:
         __logger.exception('Failed to contact the server with error:')
@@ -44,9 +45,10 @@ def get_active_events():
             schedule_start_time = local_event.get('schedule_start_time', '00:00:00')
             schedule_end_time = local_event.get('schedule_start_time', '23:59:59')
 
+            __logger.info('BEFORE SCHEDULE CHECK')
             if int(local_event.get('schedule_days_of_week', 127)) & int(current_week_day_representation) > 0 and \
                 schedule_start_time <= schedule_now_with_timezone.strftime('%H:%M:%S') <= schedule_end_time:
-
+                __logger.info('AFTER SCHEDULE CHECK')
                 metadata = json.loads(local_event.get('metadata', '{}'))
                 actions = json.loads(metadata.get('actions', '[{}]'))
                 # local events only have one action and in this case we only care about the duration_in_seconds
@@ -54,7 +56,7 @@ def get_active_events():
 
                 active_local_events.append(local_event)
 
-                print "Authorized: ", set(local_event('authorized_beacons', []))
-                print "Unauthorized: ", set(local_event('unauthorized_beacons', []))
+                __logger.warning("Authorized: %s", set(local_event('authorized_beacons', [])))
+                __logger.warning("Unauthorized: %s", set(local_event('unauthorized_beacons', [])))
 
     return active_local_events
