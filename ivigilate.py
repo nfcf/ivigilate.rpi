@@ -81,6 +81,7 @@ def init_ble_advertiser():
 
 def ble_scanner(queue):
     try:
+        __logger.info('BLE scanner thread started')
         sock = blescan.hci_open_dev(__dev_id)
         __logger.info('BLE device started')
     except Exception:
@@ -102,12 +103,14 @@ def main():
     locally_seen_macs = set() # Set that contains unique locally seen beacons
     locally_seen_uids = set() # Set that contains unique locally seen beacons
 
+    ble_queue = Queue.Queue()
     buzzer.init()
 
     #autoupdate.check()
     last_update_check = datetime.now()
+    last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
 
-    ble_queue = Queue.Queue()
+    localeventshelper.fetch()
 
     # need to try catch and retry this as it some times fails...
     subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
@@ -117,13 +120,9 @@ def main():
     ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
     ble_thread.daemon = True
     ble_thread.start()
-    __logger.info('BLE scanner thread started')
-
-    last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
-
-    localeventshelper.fetch()
 
     __logger.info('Going into the main loop...')
+
     try:
         while True:
             now = datetime.now()

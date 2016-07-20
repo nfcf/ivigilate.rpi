@@ -40,7 +40,7 @@ def get_active_events():
 
     if local_events is not None and len(local_events) > 0:
         for local_event in local_events:
-            schedule_now_with_timezone = now + datetime.timedelta(minutes = local_event.get('schedule_timezone_offset', 0))
+            schedule_now_with_timezone = now + timedelta(minutes = local_event.get('schedule_timezone_offset', 0))
             schedule_start_time = local_event.get('schedule_start_time', '00:00:00')
             schedule_end_time = local_event.get('schedule_start_time', '23:59:59')
 
