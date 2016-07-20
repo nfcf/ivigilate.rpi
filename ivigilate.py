@@ -34,14 +34,14 @@ def send_sightings(sightings):
         __logger.info('Sending %s sightings to the server...', len(sightings))
         response = requests.post(config.get('SERVER', 'address') + config.get('SERVER', 'addsightings_uri'),
                                  json.dumps(sightings), verify=True)
-        __logger.info('Received from addsightings: %s - %s', response.status_code, response.text)
+        __logger.info('Received from addsightings: %s', response.status_code)
 
         result = json.loads(response.text)
         now = int(time.time() * 1000)
         blescan.server_time_offset = result.get('timestamp', now) - now
         __invalid_detector_check_timestamp = 0
 
-        if response.status_code >= 400 and response.status_code < 500:
+        if 400 <= response.status_code < 500:
             __invalid_detector_check_timestamp = now + blescan.server_time_offset
             __logger.warning('Detector is marked as invalid. Ignoring ALL sightings for %i ms', IGNORE_INTERVAL)
         elif response.status_code == 206:
