@@ -15,8 +15,13 @@ def init_logger(logger):
                                        encoding=None,
                                        delay=50)
     file_handler.setFormatter(log_formatter)
+    file_handler.setLevel(log_level)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
 
     logger.setLevel(log_level)
     logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
     logger.info('Logger \'' + logger.name + '\' configured with level: ' + logging.getLevelName(log_level))

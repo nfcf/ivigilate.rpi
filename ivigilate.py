@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-from datetime import datetime, timedelta
-import platform, sys, subprocess, logging
+from datetime import datetime, timedelta, timezone
+import sys, subprocess, logging
 import time, requests, json, Queue, threading
-import config, autoupdate, blescan, localevents, loghelper
+import config, autoupdate, blescan, localeventshelper, loghelper
 import buzzer
 
 __logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ def send_sightings(sightings):
     except Exception:
         __logger.exception('Failed to contact the server with error:')
 
+
 def init_ble_advertiser():
     # Configure Ble advertisement packet
     ble_adv_string = '1e02011a1aff4c000215' + config.get_detector_uid() + '00000000c500000000000000000000000000'
@@ -76,6 +77,7 @@ def init_ble_advertiser():
 
     # Start Ble advertisement
     subprocess.call([config.HCITOOL_FILE_PATH, '-i', 'hci0', 'cmd', '0x08', '0x000a', '01'])
+
 
 def ble_scanner(queue):
     try:
@@ -99,10 +101,6 @@ def ble_scanner(queue):
 def main():
     locally_seen_macs = set() # Set that contains unique locally seen beacons
     locally_seen_uids = set() # Set that contains unique locally seen beacons
-    authorized = set()
-    authorized.add('b0b448fba565')
-    authorized.add('123456781234123412341234567890ab')
-    unauthorized = set(['b0b448c87401'])
 
     buzzer.init()
 
@@ -123,12 +121,9 @@ def main():
 
     last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
 
-    localevents.fetch()
-    print "Going into the main loop..."
-    print "Authorized: ", authorized
-    print "Unauthorized: ", unauthorized
+    localeventshelper.fetch()
 
-
+    __logger.info('Going into the main loop...')
     try:
         while True:
             now = datetime.now()
@@ -175,27 +170,30 @@ def main():
                     else:
                         print 'sighting ignored: ' + sighting_key
                     
-           # print locally_seen
+            local_events = localeventshelper.get_active_events()
+            for local_event in local_events:
+                unauthorized = set(local_event.get('unauthorized_beacons', []))
+                authorized = set(local_event.get('authorized_beacons', []))
+                if not locally_seen_macs.isdisjoint(unauthorized) or \
+                    not locally_seen_uids.isdisjoint(unauthorized):
+                    # Rogue beacon is trying to escape!!
+                    # TODO Add delay to checking authorized sightings
+                    print "oh oh"
+                    if (len(locally_seen_macs) == 0 or
+                            locally_seen_macs.isdisjoint(authorized)) and \
+                        (len(locally_seen_uids) == 0 or
+                            locally_seen_uids.isdisjoint(authorized)):
+                        # no authorized beacon in sigh
+                        buzzer.play_alert(local_event.get('action_duration_in_seconds', 5))
+                        break
+                    else:
+                        print 'saved by the bell...'
 
-            # Local events handling
-            if not locally_seen_macs.isdisjoint(unauthorized) or \
-                not locally_seen_uids.isdisjoint(unauthorized):
-                # Rogue beacon is trying to escape!!
-                # TODO Add delay to checking authorized sightings
-                print "oh oh"
-                if (len(locally_seen_macs) == 0 or
-                        locally_seen_macs.isdisjoint(authorized)) and \
-                    (len(locally_seen_uids) == 0 or
-                        locally_seen_uids.isdisjoint(authorized)):
-                    # no authorized beacon in sigh
-                    buzzer.play_alert(3)
-                    
-                print "All your base are belong to us."
-                locally_seen_macs.clear()
-                locally_seen_uids.clear()
-            # else:
-            #    print "What? Nothing to do..."
-                
+            print "All your base are belong to us."
+            locally_seen_macs.clear()
+            locally_seen_uids.clear()
+
+
             # if new sightings, send them to the server
             if len(sightings) > 0:
                 send_sightings(sightings)
