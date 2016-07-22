@@ -215,6 +215,7 @@ def main():
 
             # if new sightings, send them to the server
             if len(sightings) > 0:
+                # send_sightings_async(sightings)  # This needs to be better tested first...in Django dev server doesn't work so well...
                 send_sightings_async(sightings)
 
             time.sleep(1)
