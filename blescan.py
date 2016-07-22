@@ -198,7 +198,7 @@ def parse_events(sock, queue, loop_count=100):
                         # minor = return_number_from_packet(pkt[report_offset + 27: report_offset + 29])
                         # power = struct.unpack('b', pkt[report_offset + 29])[0]
 
-                        if manufacturer.lower() == '6561' and ble_type.lower() == '636F' and len(data) >= 32:  # EM Micro
+                        if manufacturer.lower() == '6561' and ble_type.lower() == '636f' and len(data) >= 32:  # EM Micro
                             em_battery_level = int(data[30:32]) / float(10)
                             battery = int((em_battery_level - float(0.9)) * (float(100) - float(0)) /
                                            (float(3) - float(0.9)) + float(0))
@@ -208,11 +208,11 @@ def parse_events(sock, queue, loop_count=100):
                             battery = 0
 
                         status = 'N'
-                        if manufacturer.lower() == '6561' and ble_type.lower() == '636F' and len(data) >= 44:  # EM Micro
-                            sighting_status = data[40:44]
-                            if sighting_status == 'FFFF':
+                        if manufacturer.lower() == '6561' and ble_type.lower() == '636f' and len(data) >= 44:  # EM Micro
+                            sighting_status = data[40:44].lower()
+                            if sighting_status == 'ffff':
                                 status = 'P'
-                            elif sighting_status == 'AAAA':
+                            elif sighting_status == 'aaaa':
                                 status = 'F'
 
                         rssi = struct.unpack('b', pkt[-1])[0]
@@ -223,7 +223,7 @@ def parse_events(sock, queue, loop_count=100):
                                 (uuid == previous_item.get('beacon_uid', None) and
                                          (now - previous_item.get('timestamp')) >= 1000):
                             # __logger.debug('Raw: %s', return_string_from_packet(pkt))
-                            __logger.debug('Parsed: %s,%s,%s,%s,%i,%i' % (mac, manufacturer, uuid, data, battery, rssi))
+                            __logger.debug('Parsed: %s,%s,%s,%s,%i,%s,%i' % (manufacturer, mac, uuid, data, battery, status, rssi))
 
                             sighting = {}  # dict()
                             sighting['timestamp'] = now
