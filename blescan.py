@@ -197,10 +197,23 @@ def parse_events(sock, queue, loop_count=100):
                         # major = return_number_from_packet(pkt[report_offset + 25: report_offset + 27])
                         # minor = return_number_from_packet(pkt[report_offset + 27: report_offset + 29])
                         # power = struct.unpack('b', pkt[report_offset + 29])[0]
-                        if report_data_length > report_offset + 30:
-                            battery = struct.unpack('b', pkt[report_offset + 30])[0]
+
+                        if manufacturer.lower() == '6561' and ble_type.lower() == '636F' and len(data) >= 32:  # EM Micro
+                            em_battery_level = int(data[30:32]) / float(10)
+                            battery = int((em_battery_level - float(0.9)) * (float(100) - float(0)) /
+                                           (float(3) - float(0.9)) + float(0))
+                        elif uuid != '' and data != '' and len(data) > 11:  # Not sure which devices send battery info this way...
+                            battery = int(data[9:11], 16)
                         else:
                             battery = 0
+
+                        status = 'N'
+                        if manufacturer.lower() == '6561' and ble_type.lower() == '636F' and len(data) >= 44:  # EM Micro
+                            sighting_status = data[40:44]
+                            if sighting_status == 'FFFF':
+                                status = 'P'
+                            elif sighting_status == 'AAAA':
+                                status = 'F'
 
                         rssi = struct.unpack('b', pkt[-1])[0]
 
@@ -218,6 +231,7 @@ def parse_events(sock, queue, loop_count=100):
                             sighting['beacon_uid'] = uuid
                             sighting['beacon_battery'] = battery
                             sighting['rssi'] = rssi
+                            sighting['metadata'] = {'status': status}
                             queue.put(sighting)
                         # else:
                             # logger.info('Skipping packet as a similar one happened less than 1 second ago.')
