@@ -49,7 +49,7 @@ def play(duration=30):
 
     # Cleanup
     buzzer.stop()  # stop PWM
-    GPIO.cleanup()  # cleanup all used GPIOs
+    end()
     
 def play_alert(duration = 5):
 

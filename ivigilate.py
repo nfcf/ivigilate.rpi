@@ -1,37 +1,26 @@
 #!/usr/bin/env python
 from datetime import datetime, timedelta
-import os, sys, subprocess, ConfigParser, logging
+import sys, subprocess, logging
 import time, requests, json, Queue, threading
-import config, autoupdate, blescan, localevents
-import bluetooth._bluetooth as bluez
+import config, autoupdate, blescan, localeventshelper, loghelper
 import buzzer
-from logging.handlers import RotatingFileHandler
 
 __logger = logging.getLogger(__name__)
+loghelper.init_logger(__logger)
 
 __dev_id = 0
 
-__ignore_sightings_lock = threading.Lock()
-__ignore_sightings = {}
+__invalid_beacons_lock = threading.Lock()
+__invalid_beacons = {}
 
 __invalid_detector_check_timestamp = 0
 
 IGNORE_INTERVAL = 1 * 60 * 60 * 1000
 
 
-def init_logger(log_level):
-    log_formatter = logging.Formatter('%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s')
-
-    file_handler = RotatingFileHandler(config.LOG_FILE_PATH, mode='a', maxBytes=2*1024*1024,
-                                     backupCount=10, encoding=None, delay=0)
-    file_handler.setFormatter(log_formatter)
-    file_handler.setLevel(log_level)
-
-    __logger.addHandler(file_handler)
-
-
 def send_sightings_async(sightings):
     t = threading.Thread(target=send_sightings, args=(sightings,))
+    t.setDaemon(True)
     t.start()
 
 
@@ -46,27 +35,30 @@ def send_sightings(sightings):
         __logger.info('Sending %s sightings to the server...', len(sightings))
         response = requests.post(config.get('SERVER', 'address') + config.get('SERVER', 'addsightings_uri'),
                                  json.dumps(sightings), verify=True)
-        __logger.info('Received from addsightings: %s - %s', response.status_code, response.text)
+        __logger.info('Received from addsightings: %s', response.status_code)
 
         result = json.loads(response.text)
         now = int(time.time() * 1000)
         blescan.server_time_offset = result.get('timestamp', now) - now
         __invalid_detector_check_timestamp = 0
 
-        if response.status_code >= 400 and response.status_code < 500:
+        if 400 <= response.status_code < 500:
             __invalid_detector_check_timestamp = now + blescan.server_time_offset
             __logger.warning('Detector is marked as invalid. Ignoring ALL sightings for %i ms', IGNORE_INTERVAL)
         elif response.status_code == 206:
-            if result.get('data', None) is not None and len(result.get('data')) > 0:
-                __ignore_sightings_lock.acquire()
+            data = result.get('data', None)
+            if data is not None and len(data) > 0 and \
+                            data.get('invalid_beacons', None) is not None and len(data.get('invalid_beacons')) > 0:
+                __invalid_beacons_lock.acquire()
 
-                for ignore_sighting_key in result.get('data'):
-                    __ignore_sightings[ignore_sighting_key] = now + blescan.server_time_offset
+                for ignore_sighting_key in data.get('invalid_beacons'):
+                    __invalid_beacons[ignore_sighting_key] = now + blescan.server_time_offset
 
-                __ignore_sightings_lock.release()
+                __invalid_beacons_lock.release()
 
     except Exception:
         __logger.exception('Failed to contact the server with error:')
+
 
 def init_ble_advertiser():
     # Configure Ble advertisement packet
@@ -89,9 +81,11 @@ def init_ble_advertiser():
     # Start Ble advertisement
     subprocess.call([config.HCITOOL_FILE_PATH, '-i', 'hci0', 'cmd', '0x08', '0x000a', '01'])
 
+
 def ble_scanner(queue):
     try:
-        sock = bluez.hci_open_dev(__dev_id)
+        __logger.info('BLE scanner thread started')
+        sock = blescan.hci_open_dev(__dev_id)
         __logger.info('BLE device started')
     except Exception:
         __logger.exception('BLE device failed to start:')
@@ -99,7 +93,6 @@ def ble_scanner(queue):
         __logger.critical('Will reboot RPi to see if it fixes the issue')
         # try to stop and start the BLE device somehow...
         # if that doesn't work, reboot the device.
-        __logger.critical('Will reboot RPi to see if it fixes the issue')
         sys.exit(1)
 
     blescan.hci_le_set_scan_parameters(sock)
@@ -110,46 +103,40 @@ def ble_scanner(queue):
 
 
 def main():
-    locally_seen_macs = set() # Set that contains unique locally seen beacons
-    locally_seen_uids = set() # Set that contains unique locally seen beacons
-    authorized = set()
-    authorized.add('b0b448fba565')
-    authorized.add('123456781234123412341234567890ab')
-    unauthorized = set(['b0b448c87401'])
-    
-    config.init()
+    # Sets that contains unique locally seen beacons
+    locally_seen_macs = set()
+    locally_seen_uids = set()
+
+    # Queue that will contain the sightings to be sent to the server
+    ble_queue = Queue.Queue()
+
     buzzer.init()
 
-    log_level = config.getint('BASE', 'log_level')
-    init_logger(log_level)
-
-    __logger.info('Started with log level: ' + logging.getLevelName(log_level))
-
-    #autoupdate.check()
+    # autoupdate.check()
     last_update_check = datetime.now()
+    last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
+
+    localeventshelper.fetch()
 
     # need to try catch and retry this as it some times fails...
     subprocess.call([config.HCICONFIG_FILE_PATH, 'hci0', 'up'])
 
     init_ble_advertiser()
 
-    ble_queue = Queue.Queue()
-
     ble_thread = threading.Thread(target=ble_scanner, args=(ble_queue,))
     ble_thread.daemon = True
     ble_thread.start()
-    __logger.info('BLE scanner thread started')
 
-    last_respawn_date = datetime.strptime(config.get('DEVICE', 'last_respawn_date'), '%Y-%m-%d').date()
-    
-    print "Going into the main loop..."
-    print "Authorized: ", authorized
-    print "Unauthorized: ", unauthorized 
+    __logger.info('Going into the main loop...')
 
     try:
+        local_events = localeventshelper.get_active_events()
+        local_event_check_timestamp = 0
+
         while True:
             now = datetime.now()
             now_timestamp = int(time.time() * 1000)
+
             # if configured daily_respawn_hour, stop the ble_thread and respawn the process
             # if now.date() > last_respawn_date and now.hour == config.getint('BASE', 'daily_respawn_hour'):
                 # autoupdate.respawn_script(ble_thread)
@@ -167,55 +154,68 @@ def main():
                     sighting = ble_queue.get()
                     sighting_key = sighting['beacon_mac'] + sighting['beacon_uid']
 
+                    # Check if invalid detector or invalid beacon and set ignore_sighting accordingly
                     ignore_sighting = now_timestamp - __invalid_detector_check_timestamp < IGNORE_INTERVAL
                     if not ignore_sighting:
-                        __ignore_sightings_lock.acquire()
+                        __invalid_beacons_lock.acquire()
 
-                        ignore_sighting_timestamp = __ignore_sightings.get(sighting_key, 0)
-                        if ignore_sighting_timestamp > 0 and \
-                            now_timestamp - ignore_sighting_timestamp < IGNORE_INTERVAL:
+                        invalid_beacon_timestamp = __invalid_beacons.get(sighting_key, 0)
+                        if invalid_beacon_timestamp > 0 and \
+                                                now_timestamp - invalid_beacon_timestamp < IGNORE_INTERVAL:
                             ignore_sighting = True
-                        elif sighting_key in __ignore_sightings:
-                            del __ignore_sightings[sighting_key]
+                        elif sighting_key in __invalid_beacons:
+                            del __invalid_beacons[sighting_key]
 
-                        __ignore_sightings_lock.release()
+                        __invalid_beacons_lock.release()
 
-                    if not ignore_sighting:
-                        sightings.append(sighting)
-                        # TODO Only add this beacon to the list if we have "events" for it
-                        ## Probably join all unauthorized lists into one and see if this new exists there or not
-                        if sighting['beacon_mac'] != '':
-                            locally_seen_macs.add(sighting['beacon_mac']) # Append the beacon_mac of the latest sighting
-                        if sighting['beacon_uid'] != '':
-                            locally_seen_uids.add(sighting['beacon_uid']) # Append the beacon_uid of the latest sighting
-                        # Launch threading.timer here
+                        if not ignore_sighting:  # If beacon is valid (still not ignore_sighting) then...
+                            sightings.append(sighting)  # append sighting to list to be sent to server
+
+                            if len(local_events) > 0:
+                                if local_event_check_timestamp == 0:
+                                    local_event_check_timestamp = now_timestamp
+                                # add beacon to list of locally_seen devices (to be compared with authorized and unauthorized beacons)
+                                if sighting['beacon_mac'] != '':
+                                    locally_seen_macs.add(sighting['beacon_mac']) # Append the beacon_mac of the latest sighting
+                                if sighting['beacon_uid'] != '':
+                                    locally_seen_uids.add(sighting['beacon_uid']) # Append the beacon_uid of the latest sighting
+                        else:
+                            __logger.debug('Sighting ignored (invalid beacon): %s', sighting_key)
                     else:
-                        print 'sighting ignored: ' + sighting_key
-                    
-           # print locally_seen
+                        __logger.debug('Sighting ignored (invalid detector): %s', sighting_key)
 
-            # Local events handling
-            if not locally_seen_macs.isdisjoint(unauthorized) or \
-                not locally_seen_uids.isdisjoint(unauthorized):
-                # Rogue beacon is trying to escape!!
-                # TODO Add delay to checking authorized sightings
-                print "oh oh"
-                if (len(locally_seen_macs) == 0 or
-                        locally_seen_macs.isdisjoint(authorized)) and \
-                    (len(locally_seen_uids) == 0 or
-                        locally_seen_uids.isdisjoint(authorized)):
-                    # no authorized beacon in sigh
-                    buzzer.play_alert(3)
-                    
-                print "All your base are belong to us."
+            # Every 3 seconds, check if we need to trigger an alert and reset the locally_seen sets
+            # TODO: This is an ugly solution and will fail if the sightings occur near the 3s mark, but didn't want to spend
+            # more time on it at this stage...Would be good to add a delay for checking authorized sightings...
+            if now_timestamp - local_event_check_timestamp > 3000:
+                for local_event in local_events:
+                    unauthorized = set(local_event.get('unauthorized_beacons', []))
+                    authorized = set(local_event.get('authorized_beacons', []))
+                    __logger.debug('Authorized: %s', authorized)
+                    __logger.debug('Unauthorized: %s', unauthorized)
+
+                    if not locally_seen_macs.isdisjoint(unauthorized) or \
+                        not locally_seen_uids.isdisjoint(unauthorized):
+                        __logger.debug('One or more unauthorized beacon were seen!')
+
+                        if (len(locally_seen_macs) == 0 or
+                                locally_seen_macs.isdisjoint(authorized)) and \
+                            (len(locally_seen_uids) == 0 or
+                                locally_seen_uids.isdisjoint(authorized)):
+
+                            __logger.info('Triggering alarm for local_event: %s - %s', local_event.get('id'), local_event.get('name'))
+                            buzzer.play_alert(local_event.get('action_duration_in_seconds', 5))
+                            break
+                        else:
+                            __logger.debug('Clearing alarm as an authorized beacon was also seen...')
+
                 locally_seen_macs.clear()
                 locally_seen_uids.clear()
-            # else:
-            #    print "What? Nothing to do..."
-                
+                local_event_check_timestamp = 0
+
             # if new sightings, send them to the server
             if len(sightings) > 0:
-                send_sightings(sightings)
+                send_sightings_async(sightings)
 
             time.sleep(1)
             
