@@ -20,6 +20,7 @@ IGNORE_INTERVAL = 1 * 60 * 60 * 1000
 
 def send_sightings_async(sightings):
     t = threading.Thread(target=send_sightings, args=(sightings,))
+    t.setDaemon(True)
     t.start()
 
 
@@ -185,7 +186,7 @@ def main():
 
             # Every 3 seconds, check if we need to trigger an alert and reset the locally_seen sets
             # TODO: This is an ugly solution and will fail if the sightings occur near the 3s mark, but didn't want to spend
-            # more time on it at this stage...
+            # more time on it at this stage...Would be good to add a delay for checking authorized sightings...
             if now_timestamp - local_event_check_timestamp > 3000:
                 for local_event in local_events:
                     unauthorized = set(local_event.get('unauthorized_beacons', []))
@@ -196,13 +197,13 @@ def main():
                     if not locally_seen_macs.isdisjoint(unauthorized) or \
                         not locally_seen_uids.isdisjoint(unauthorized):
                         __logger.debug('One or more unauthorized beacon were seen!')
-                        # TODO Add delay to checking authorized sightings
+
                         if (len(locally_seen_macs) == 0 or
                                 locally_seen_macs.isdisjoint(authorized)) and \
                             (len(locally_seen_uids) == 0 or
                                 locally_seen_uids.isdisjoint(authorized)):
-                            # no authorized beacon in sigh
-                            __logger.info('Triggering alarm for local_event: %s - %s', local_event.id, local_event.name)
+
+                            __logger.info('Triggering alarm for local_event: %s - %s', local_event.get('id'), local_event.get('name'))
                             buzzer.play_alert(local_event.get('action_duration_in_seconds', 5))
                             break
                         else:
