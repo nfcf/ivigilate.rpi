@@ -7,7 +7,7 @@
 
 # NOTE: Python's struct.pack() will add padding bytes unless you make the endianness explicit. Little endian
 # should be used for BLE. Always start a struct.pack() format string with "<"
-import sys, struct, logging, Queue, time
+import sys, struct, logging, time, json
 import loghelper
 import bluetooth._bluetooth as bluez
 
@@ -231,7 +231,7 @@ def parse_events(sock, queue, loop_count=100):
                             sighting['beacon_uid'] = uuid
                             sighting['beacon_battery'] = battery
                             sighting['rssi'] = rssi
-                            sighting['metadata'] = {'status': status}
+                            sighting['metadata'] = json.dumps({'status': status})
                             queue.put(sighting)
                         # else:
                             # logger.info('Skipping packet as a similar one happened less than 1 second ago.')
